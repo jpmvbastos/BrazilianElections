@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# @author: BASTOS
+
+
+"""
+import matplotlib.pyplot as plt
+import pandas as pd
+import geopandas as gpd
+import geoplot as gplt
+import geoplot.crs as gcrs
+import mapclassify as mc
+import contextily as ctx
+
+# Open the Shapefile containing each municipality -- retrieved from ( https://arquivofee.rs.gov.br/rs-em-mapas-e-dados/basedados.html )
+# I am using the 2007_2008 version map for Rio Grande do Sul state
+
+from geopandas import read_file
+gdf = gpd.read_file('Downloads/RS_2007_2008', encoding='latin-1')
+gdf = gdf.set_index('Nome_Munic').sort_index()
+gdf = gdf.reset_index()
+
+
+#Import TSE data from (https://www.tse.jus.br/eleicoes/estatisticas/repositorio-de-dados-eleitorais-1)
+# Here I am using "Resultados > Votação por Seção Eleitoral", which are the results by electoral section.
+
+tse = pd.read_csv('Downloads/votacao_candidato_munzona_2018_rs.csv', delimiter=';' , encoding='latin-1') #Votações
+
+# For Rio Grande do Sul state, the Shapefile we are using for the map precedes the creation of the city of Pinto Bandeira, which secceeded from Bento Gonçalves. 
+# An easy fix, if we are aggregating by city, is to simply rename every instance of Pinto Bandeira as being Bento Gonçalves
+
+tse = tse.replace('PINTO BANDEIRA','BENTO GONÇALVES')
+
+
+# Sum the votes of the chosen candidate, by municipality
+df = pd.DataFrame(tse[tse['NM_URNA_CANDIDATO'] == 'INSERT DESIRED CANDIDATE'].groupby('NM_MUNICIPIO')['QT_VOTOS_NOMINAIS'].sum())
+total_votos = pd.DataFrame(tse[tse['DS_CARGO'] == 'THE DESIRED CANDIDATE'S POSITION'].groupby('NM_MUNICIPIO')['QT_VOTOS_NOMINAIS'].sum())
+
+# Reset Index, drop the repeated column and rename variable for easier code
+df = df.reset_index()
+df = df.drop('NM_MUNICIPIO',1)
+df = df.rename(columns={'QT_VOTOS_NOMINAIS':'votes'})
+
+#Doing the same for the total votes casted at each municipality (for any candidate)
+total_votos = total_votos.reset_index()
+total_votos = total_votos.drop('NM_MUNICIPIO',1)
+total_votos = total_votos.rename(columns={'QT_VOTOS_NOMINAIS':'eleitores'})
+
+
+# Concat the 
+gdf = pd.concat([gdf, df['votos'], total_votos['eleitores']], axis=1)
+
+# Using MapClassify, we created a Choropleth scheme for plotting the number of votes for the given candidate at each municipality, using GeoPlot
+scheme = mc.FisherJenks(gdf['votos'], k=20)
+gplt.choropleth(
+    gdf, hue='votos', 
+    edgecolor='black', linewidth=0.05,
+    cmap='BuPu', legend=True, legend_kwargs={'loc': 'lower left'}, scheme=scheme, figsize=(20,20),
+)
+
+# Creating a new variable 'Percentage of Total Votes' and placing it as a new column in our DataFrame
+pct_total = pd.DataFrame(gdf['votos']/gdf['eleitores']*100, columns={'pct_total'})
+gdf = pd.concat([gdf, pct_total], axis=1)
+
+# Ploting the Percentage of Total Votes
+scheme2 = mc.FisherJenks(gdf['pct_total'], k=10)
+gplt.choropleth(
+    gdf, hue='pct_total', 
+    edgecolor='black', linewidth=0.05,
+    cmap='YlGn', legend=True, legend_kwargs={'loc': 'lower left'}, scheme=scheme2, figsize=(20,20)
+)
+
+
+# We can create a map for a specific region of the Rio Grande do Sul State
+#Here we are plotting only the Metropolitan Region of Porto Alegre, the capital
+gdf_rm_poa = gdf[gdf['Nome_Micro'] == 'Porto Alegre']
+
+
+#Plot over a WebMap
+#Option 1, using geoplot.webmap
+ax = gplt.webmap(gdf_rm_poa, figsize=(15,15))
+scheme3 = mc.FisherJenks(gdf_rm_poa['votos'],k=21)
+gplt.choropleth(
+    gdf_rm_poa, hue='votos', 
+    edgecolor='black', linewidth=1, 
+    cmap='YlGnBu', alpha=0.4, legend=True, legend_kwargs={'loc': 'lower left'}, scheme=scheme3, ax=ax, figsize=(15,15)
+)
+
+
+
+#Option 2, using contextly.add_basemap
+gdf_rm_poa_crs = gdf_rm_poa.to_crs(epsg=3857)
+
+ax1 = gplt.choropleth(
+    gdf_rm_poa_crs, hue='votos', 
+    edgecolor='black', linewidth=1, 
+    cmap='YlGn', alpha=0.3, legend=False, scheme=scheme3, figsize=(10,10))
+
+ctx.add_basemap(ax1)
+
+
+
+
+
+
+
+
+
+
+
+
