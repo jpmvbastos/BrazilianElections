@@ -4,5 +4,5 @@ This is a list of useful resources and template codes for analyses Brazilian ele
 
 ## Geo
 
-\Geo contains data and codes directed to geo-spatial analysis.
+Geo contains data and codes directed to geo-spatial analysis.
 
