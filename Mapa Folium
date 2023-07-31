@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Apr 28 09:05:27 2021
+
+@author: BASTOS
+"""
+
+import folium 
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+import geopandas as gpd
+import geoplot as gplt
+import geoplot.crs as gcrs
+import mapclassify as mc
+import contextily as ctx
+
+from geopandas import read_file
+
+#Create Map Object
+
+m = folium.Map(location=[-30.047910, -51.193706], zoom_start=12)
+
+#Importar a Lista de Locais de Votação
+df = pd.read_csv('Downloads/geo_trers.csv', delimiter=';')
+df = df.rename(columns={'NUM_LATITUDE':'Lat','NUM_LONGITUDE':'Long'})
+
+
+sec = pd.read_csv('Downloads/votacao_secao_2018_RS/votacao_secao_2018_RS.csv', delimiter=';' , encoding='latin-1') #Secao
+
+fb = pd.DataFrame(sec[sec['NM_VOTAVEL'] == 'FERNANDA DA CUNHA BARTH'].groupby('NR_SECAO')['QT_VOTOS'].sum())              
+fb = fb.sort_values('NR_SECAO').reset_index()
+
+mapa = pd.merge(fb, df, how='inner', left_on='NR_SECAO', right_on='NUM_SECAO')
+
+mapa = mapa.dropna(subset=['Lat','Long'])
+
+
+################
+
+small_votos = folium.FeatureGroup(name = '< 5 Votos')
+medium_votos = folium.FeatureGroup(name = '6 - 25 Votos')
+large_votos = folium.FeatureGroup(name = '26 - 50 Votos')
+xl_votos = folium.FeatureGroup(name = '> 50 Votos')
+
+
+for i, v in mapa.iterrows():
+    
+    votos = float(v['QT_VOTOS'])
+    
+    popup = """
+    Nome do Local : <b>%s</b><br>
+    Votos : <strong>%s</strong><br>
+    Município : <b>%s</b><br>
+    Seção : <b>%s</b><br>
+    Zona: <b>%s</b><br>
+    """ % (v['NOM_LOCAL'], v['QT_VOTOS'], 
+           v['NOM_LOCALIDADE'], v['NUM_SECAO'], 
+           v['NUM_ZONA'])
+    
+    
+    if votos < 5:
+        folium.CircleMarker(location=(v['Lat'], v['Long']),
+                           radius = np.log(votos) * 0.8,
+                           weight = 0,
+                           tooltip = popup,
+                           color = '#ffeda0',
+                           fill_color = '#ffeda0',
+                           fill_opacity = 0.7,
+                           fill = True).add_to(small_votos)
+        
+    if votos in range(6, 25):
+        folium.CircleMarker(location=(v['Lat'], v['Long']),
+                           radius = np.log(votos),
+                           weight = 0,
+                           tooltip = popup,
+                           color = '#feb24c',
+                           fill_color = '#feb24c',
+                           fill_opacity = 0.7,
+                           fill = True).add_to(medium_votos)
+    
+    if votos in range(26, 50):
+        folium.CircleMarker(location=(v['Lat'], v['Long']),
+                           radius = np.log(votos) * 1.5,
+                           weight = 0,
+                           tooltip = popup,
+                           color = '#fc4e2a',
+                           fill_color = '#fc4e2a',
+                           fill_opacity = 0.7,
+                           fill = True).add_to(large_votos)
+
+    if votos > 50:
+        folium.CircleMarker(location=(v['Lat'], v['Long']),
+                           radius = np.log(votos) * 2,
+                           weight = 0,
+                           tooltip = popup,
+                           color = 'Red',
+                           fill_color = 'Red',
+                           fill_opacity = 0.7,
+                           fill = True).add_to(xl_votos)
+        
+
+
+small_votos.add_to(m)
+medium_votos.add_to(m)
+large_votos.add_to(m)
+xl_votos.add_to(m)
+folium.LayerControl(collapsed = False).add_to(m)
+
+#Generate Map
+m.save('map.html')
+
+#################
+    
+ 
+#Mapa Munic
+tse = pd.read_csv('Downloads/votacao_candidato_munzona_2018_rs.csv', delimiter=';' , encoding='latin-1') #Municipio
+
+
+# Corrigir o problema de Pinto Bandeira (colocar as seções como Bento Gonçalves)
+tse = tse.replace('PINTO BANDEIRA','BENTO GONÇALVES')
+
+#Achar as observações com == candidato, agrupar por município e somar o número de votos 
+tse_fb = pd.DataFrame(tse[tse['NM_URNA_CANDIDATO'] == 'FERNANDA BARTH'].groupby('NM_MUNICIPIO')['QT_VOTOS_NOMINAIS'].sum())
+total_votos = pd.DataFrame(tse[tse['DS_CARGO'] == 'Deputado Estadual'].groupby('NM_MUNICIPIO')['QT_VOTOS_NOMINAIS'].sum())
+
+#Gerar um data frame com as respostas, resetar o index e mudar o nome da coluna
+
+tse_fb = tse_fb.reset_index()
+tse_fb = tse_fb.drop('NM_MUNICIPIO', axis=1)
+tse_fb = tse_fb.rename(columns={'QT_VOTOS_NOMINAIS':'votos'})
+
+
+total_votos = total_votos.reset_index()
+total_votos = total_votos.drop('NM_MUNICIPIO',1)
+total_votos = total_votos.rename(columns={'QT_VOTOS_NOMINAIS':'eleitores'})
+
+from geopandas import read_file
+gdf = gpd.read_file('Downloads/RS_2007_2008', encoding='latin-1')
+gdf = gdf.set_index('Nome_Munic').sort_index()
+gdf = gdf.reset_index()
+
+
+# Unir as tres tabelas
+
+# This one is not working
+gdf = pd.concat([gdf, tse_fb['votos']], axis=1)
+
+mun = folium.Map(location=[-30, -51], zoom_start=10)
+
+folium.Choropleth(
+    geo_data=gdf,
+    name="Votação por Munic",
+    data=tse_fb,
+    columns=["votos"],
+    key_on="feature.id",
+    fill_color="BuPu",
+    fill_opacity=0.7,
+    line_opacity=0.2,
+    legend_name="Votos",
+).add_to(mun)
+
+folium.LayerControl().add_to(mun)
+
+mun.save('mun.html')
+
+
+##### HEATMAP
+
+from folium import plugins
+
+map = folium.Map(location = [15,30], tiles='Cartodb dark_matter', zoom_start = 2)
+
+heat_data = [[point.xy[1][0], point.xy[0][0]] for point in geo_df.geometry ]
+
+heat_data
+plugins.HeatMap(heat_data).add_to(map)
+
+
+
+
